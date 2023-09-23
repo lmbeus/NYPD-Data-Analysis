@@ -1,0 +1,111 @@
+---
+title: "NYPD_Analysis_Project"
+author: "Loic Beus"
+date: "2023-09-01"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE,message=FALSE)
+```
+# Introduction
+
+In this analysis we will be looking at the NYPD shooting incidents data set which can be found here: <https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv>. It contains data pertaining to shooting incidents reported to the NYPD that shares information such as date of occurrence, perpetrator and victim info like age group and race, location description, etc. Using this info we will be looking at what the proportion of shooting victims are Asian and how that proportion has changed over the years
+
+# Imporing the libraries and dataset
+
+```{r Import_Libraries}
+library(tidyr)
+library(dplyr)
+library(lubridate)
+```
+
+```{r Import_Data}
+url_in <- url("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+nypd_data <- read.csv(url_in) 
+```
+
+# Cleaning the Data
+<br><br>
+
+Here we will clean the data and ensure it is all correct. We remove columns/variables that we don't need for our particular analysis and remove any data points that are "NA" or "Unknown" or any blanks. We will also add a column to the data called "count" that just has the value as 1 that will give us an easy way to calculate data like the number of incidents and/or proportions. 
+<br>
+```{r Clean_Data}
+#Remove variables that we won't use and assign variables the approprite class
+df_nypd <- nypd_data[-c(1,3,4,5,6,7,8,9,10,11,12,13,17,18,19,20,21)]
+df_nypd$OCCUR_DATE <- as.Date(df_nypd$OCCUR_DATE, format="%m/%d/%Y")
+cols <- c("VIC_AGE_GROUP","VIC_SEX","VIC_RACE")
+df_nypd[cols] <- lapply(df_nypd[cols], factor)
+
+#Remove data we don't want
+df_nypd <- df_nypd[df_nypd$VIC_RACE != "UNKNOWN" & df_nypd$VIC_RACE != "(null)",]
+
+#Add a Year and Count column for analysis
+df_nypd$year <- year(ymd(df_nypd$OCCUR_DATE))
+df_nypd$count <- 1
+
+unique(df_nypd$VIC_RACE)
+```
+
+
+# Prelimenary Analysis
+<br><br>
+
+We will now group the data by year and victim race to look at the number of shootings by victim race each year. 
+<br><br>
+```{r prelimenary_analysis}
+#create the dataframe to group by date
+by_date <- df_nypd %>%
+  group_by(year, VIC_RACE) %>%
+  summarize(yearly_incidents = sum(count))
+
+#plot the data
+par(mar=c(5, 7, 5, 7), xpd=TRUE)
+plot(by_date$year, by_date$yearly_incidents, col=by_date$VIC_RACE, 
+     xlab="Year", ylab="Incidents")
+par(xpd=TRUE)
+legend('topright', inset=c(-.32,0),legend = levels(by_date$VIC_RACE), 
+       col = 1:5, cex = 0.3, pch = 1)
+```
+From the plot above we can see that for each victim race they generally follow the same trend. We can see that for all the races have a spike in incidents in 2020 and 2021 and a large drop in 2022 with the exception of Asian/Pacific Islander which appears to have an increase in 2022.
+```{r asian_analysis}
+by_date <- df_nypd %>%
+  group_by(year, VIC_RACE) %>%
+  summarize(yearly_incidents = sum(count))
+
+asian <- by_date[by_date$VIC_RACE == "ASIAN / PACIFIC ISLANDER",]
+plot(asian$year, asian$yearly_incidents,xlab="Year", ylab="Incidents")
+```
+<br><br>
+Upon closer inspection of the Asian/Pacific Islander data we can see that the number of shooting incidents with an Asian/Pacific Islander victim has a drop in 2021 but does indeed go up again in 2022 which deviates from the general trend of the other races.
+<br><br>
+
+# Analyzing Proportions
+<br><br>
+
+We will now take a look at how the proportion of Asian/Pacific Islaner shooting victims compares and how it has changed from 2006 to 2022. We will fit a second order polynomial linear regression model to the data and display the fit on the scatterplot as well.
+```{r proportions}
+#Data frame with total shootings per year
+by_year <- df_nypd %>%
+  group_by(year) %>%
+  summarize(incidents = sum(count))
+#Create dataframe of just the Asian/Pacific Islander proportions
+asian$yearly_proportion <- asian$yearly_incidents/by_year$incidents
+
+
+#Create the model
+asian_lm <- lm(asian$yearly_proportion ~ poly(asian$year,2, raw=TRUE))
+summary(asian_lm)
+pred <- predict(asian_lm)
+ix <- sort(asian$year, index.return=T)$ix
+
+#Plot the data and the model line
+plot(asian$year,asian$yearly_proportion,xlab="Year", ylab="Proportion of Incidents")
+lines(asian$year[ix], pred[ix], col='blue',lwd=2)
+```
+From the model we have an F-statistic of 7.115 and a p-value of ~.0074 which tells us that there is a statistically significant change in proportion of Asian/Pacific Islander shooting victims each year at an alpha level of 0.05. Looking at the plot we can see that since about 2009 there has been an increasing higher proportion of Asian/Pacific Islander shooting victims that had a particularly large increase in 2022.
+
+
+# Potential Sources of Bias
+<br><br>
+There are many potential sources of bias for the NYPD shooting incident data. There is potential for geographic bias, where certain areas have a stronger police presence which could lead to over representation of incidents in those areas. There could also be an issue of under reporting; lots of incidents go unreported which could lead to further bias in the data. When drawing any conclusions from the data it is very important to understand what ones own biases are in addition to the potential bias in the data.
